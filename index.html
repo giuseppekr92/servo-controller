@@ -1,133 +1,134 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
   <title>Controllo Servo Remoto</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
-    h1 { color: #0066cc; }
-    input[type="number"] { width: 50px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: white; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    button { margin-right: 10px; padding: 8px 12px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
-    button:hover { background: #0056b3; }
-    .servo { margin: 20px 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f7f7f7;
+      padding: 20px;
+    }
+    h1 {
+      color: #007bff;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: center;
+    }
+    .btn {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      margin: 4px;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background-color: #0056b3;
+    }
   </style>
 </head>
 <body>
+
   <h1>Controllo Servo</h1>
+  <p>Angolo: <span id="angolo">90</span>°</p>
+  <input type="range" id="servoSlider" min="0" max="180" value="90" onchange="muoviServo(this.value)">
+  <br><br>
 
-  <div class="servo">
-    <div id="angleValue">Angolo: 90°</div>
-    <input type="range" id="angleSlider" min="0" max="180" value="90" style="width: 100%;" />
-  </div>
+  <button class="btn" onclick="aggiungiEvento()">➕ Aggiungi evento</button>
+  <button class="btn" onclick="applicaModifiche()">📄 Applica modifiche</button>
+  <button class="btn" onclick="salvaEEPROM()">💾 Salva eventi su EEPROM</button>
 
-  <button onclick="aggiungiEvento()">+ Aggiungi evento</button>
-  <button onclick="applicaModifiche()">📄 Applica modifiche</button>
-  <button onclick="salvaSuEEPROM()">💾 Salva eventi su EEPROM</button>
-
-  <table id="tabellaEventi">
+  <table>
     <thead>
       <tr>
-        <th>#</th>
-        <th>Ora</th>
-        <th>Minuto</th>
-        <th>Angolo</th>
-        <th>Giorni (D-L-M-M-G-V-S)</th>
-        <th>Attivo</th>
+        <th>#</th><th>Ora</th><th>Minuto</th><th>Angolo</th>
+        <th>Giorni (D-L-M-M-G-V-S)</th><th>Attivo</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="eventiTable"></tbody>
   </table>
 
   <script>
-    const IP_ARDUINO = "192.168.43.100";
+    const giorniSettimana = 7;
 
-    document.getElementById("angleSlider").addEventListener("input", function () {
-      const angle = this.value;
-      document.getElementById("angleValue").innerText = `Angolo: ${angle}°`;
-
-      fetch(`http://${IP_ARDUINO}/set-servo?angle=${angle}`)
-        .then(res => console.log("Servo aggiornato", res.status))
-        .catch(err => console.error("Errore:", err));
-    });
+    function muoviServo(val) {
+      document.getElementById("angolo").textContent = val;
+      fetch(`/set-servo?angle=${val}`).catch(console.error);
+    }
 
     function aggiungiEvento() {
-      const tbody = document.querySelector("#tabellaEventi tbody");
-      const row = document.createElement("tr");
-      const i = tbody.children.length;
-
-      row.innerHTML = `
-        <td>${i}</td>
-        <td><input type="number" min="0" max="23" value="0" /></td>
-        <td><input type="number" min="0" max="59" value="0" /></td>
-        <td><input type="number" min="0" max="180" value="90" /></td>
-        <td>
-          ${[...Array(7).keys()].map(j => `<input type="checkbox" />`).join("")}
-        </td>
-        <td><input type="checkbox" checked /></td>
+      const id = document.querySelectorAll("#eventiTable tr").length;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${id}</td>
+        <td><input type="number" min="0" max="23" value="0"></td>
+        <td><input type="number" min="0" max="59" value="0"></td>
+        <td><input type="number" min="0" max="180" value="90"></td>
+        <td>${[...Array(giorniSettimana)].map(() => '<input type="checkbox">').join('')}</td>
+        <td><input type="checkbox" checked></td>
       `;
-
-      tbody.appendChild(row);
+      document.getElementById("eventiTable").appendChild(tr);
     }
 
     function applicaModifiche() {
-      const rows = document.querySelectorAll("#tabellaEventi tbody tr");
-      const params = [];
+      const righe = document.querySelectorAll("#eventiTable tr");
+      let parametri = [];
 
-      rows.forEach((row, i) => {
-        const cells = row.querySelectorAll("input");
-        const ora = parseInt(cells[0].value) || 0;
-        const min = parseInt(cells[1].value) || 0;
-        const angolo = parseInt(cells[2].value) || 90;
-        let giorni = 0;
+      righe.forEach((riga, i) => {
+        const celle = riga.querySelectorAll("input");
+        const ora = parseInt(celle[0].value);
+        const minuto = parseInt(celle[1].value);
+        const angolo = parseInt(celle[2].value);
+        const giorni = Array.from(celle).slice(3, 10).reduce((mask, cb, i) => cb.checked ? mask | (1 << i) : mask, 0);
+        const attivo = celle[10].checked ? 1 : 0;
 
-        for (let j = 3; j < 10; j++) {
-          if (cells[j].checked) giorni |= (1 << (j - 3));
-        }
-
-        const attivo = cells[10].checked ? 1 : 0;
-        const param = `e${i}=${ora},${min},${angolo},${giorni},${attivo}`;
-        params.push(param);
+        const val = `${ora},${minuto},${angolo},${giorni},${attivo}`;
+        parametri.push(`e${i}=${val}`);
       });
 
-      const url = `http://${IP_ARDUINO}/update-events?${params.join("&")}`;
-      fetch(url)
-        .then(res => console.log("Eventi aggiornati", res.status))
-        .catch(err => console.error("Errore update:", err));
+      fetch(`/update-events?${parametri.join("&")}`).then(() => alert("Modifiche inviate")).catch(console.error);
     }
 
-    function salvaSuEEPROM() {
-      fetch(`http://${IP_ARDUINO}/salva`)
-        .then(res => alert("Eventi salvati su EEPROM"))
-        .catch(err => alert("Errore salvataggio EEPROM"));
+    function salvaEEPROM() {
+      fetch("/salva").then(() => alert("Eventi salvati su EEPROM")).catch(console.error);
     }
 
     function caricaEventi() {
-      fetch(`http://${IP_ARDUINO}/get-events`)
-        .then(res => res.json())
-        .then(data => {
-          const tbody = document.querySelector("#tabellaEventi tbody");
-          tbody.innerHTML = "";
-          data.forEach((e, i) => {
-            const row = document.createElement("tr");
-            row.innerHTML = `
+      fetch("/get-events")
+        .then(r => r.json())
+        .then(dati => {
+          document.getElementById("eventiTable").innerHTML = "";
+          dati.forEach((ev, i) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
               <td>${i}</td>
-              <td><input type="number" min="0" max="23" value="${e.ora}" /></td>
-              <td><input type="number" min="0" max="59" value="${e.minuto}" /></td>
-              <td><input type="number" min="0" max="180" value="${e.angolo}" /></td>
-              <td>
-                ${[...Array(7).keys()].map(j => `<input type="checkbox" ${e.giorni & (1 << j) ? "checked" : ""} />`).join("")}
-              </td>
-              <td><input type="checkbox" ${e.attivo ? "checked" : ""} /></td>
+              <td><input type="number" min="0" max="23" value="${ev.ora}"></td>
+              <td><input type="number" min="0" max="59" value="${ev.minuto}"></td>
+              <td><input type="number" min="0" max="180" value="${ev.angolo}"></td>
+              <td>${[...Array(7)].map((_, j) =>
+                `<input type="checkbox" ${((ev.giorni >> j) & 1) ? 'checked' : ''}>`
+              ).join('')}</td>
+              <td><input type="checkbox" ${ev.attivo ? 'checked' : ''}></td>
             `;
-            tbody.appendChild(row);
+            document.getElementById("eventiTable").appendChild(tr);
           });
-        });
+        })
+        .catch(console.error);
     }
 
     window.onload = caricaEventi;
   </script>
+
 </body>
 </html>
