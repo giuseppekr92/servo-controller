@@ -6,16 +6,13 @@
   <title>Controllo Servo Remoto</title>
   <style>
     body {
-      font-family: sans-serif;
+      font-family: Arial, sans-serif;
+      background-color: #f7f7f7;
       margin: 0;
       padding: 20px;
-      background: #f7f7f7;
     }
     h1 {
-      color: #007bff;
-    }
-    input[type="range"] {
-      width: 100%;
+      color: #0066cc;
     }
     table {
       width: 100%;
@@ -28,110 +25,128 @@
       text-align: center;
     }
     th {
-      background-color: #eee;
+      background-color: #e0e0e0;
     }
-    button {
-      padding: 8px 12px;
-      margin-top: 10px;
+    input[type="number"] {
+      width: 50px;
+    }
+    .giorni input {
+      width: auto;
+    }
+    #servoSlider {
+      width: 100%;
+    }
+    .btn {
+      margin: 5px;
+      padding: 8px 16px;
       background-color: #007bff;
       color: white;
       border: none;
-      cursor: pointer;
       border-radius: 4px;
+      cursor: pointer;
     }
-    button:hover {
+    .btn:hover {
       background-color: #0056b3;
-    }
-    input[type="number"] {
-      width: 60px;
     }
   </style>
 </head>
 <body>
   <h1>Controllo Servo</h1>
-  <p>Angolo: <span id="valore">90</span>°</p>
-  <input type="range" id="servoRange" min="0" max="180" value="90" />
+  <p>Angolo: <span id="servoVal">90</span>°</p>
+  <input type="range" min="0" max="180" value="90" id="servoSlider" onchange="muoviServo(this.value)" />
 
-  <button onclick="salvaEEPROM()">💾 Salva eventi su EEPROM</button>
-  <button onclick="aggiornaEventi()">📤 Applica modifiche</button>
+  <br /><br />
+  <button class="btn" onclick="aggiungiEvento()">+ Aggiungi evento</button>
+  <button class="btn" onclick="applicaModifiche()">&#x1F4DD; Applica modifiche</button>
+  <button class="btn" onclick="salvaEEPROM()">&#x1F4BE; Salva eventi su EEPROM</button>
 
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Ora</th><th>Minuto</th><th>Angolo</th><th>Giorni (D-L-M-M-G-V-S)</th><th>Attivo</th>
+        <th>#</th>
+        <th>Ora</th>
+        <th>Minuto</th>
+        <th>Angolo</th>
+        <th>Giorni (D-L-M-M-G-V-S)</th>
+        <th>Attivo</th>
       </tr>
     </thead>
-    <tbody id="tabella"></tbody>
+    <tbody id="tabellaEventi"></tbody>
   </table>
 
   <script>
-    const ip = "http://192.168.43.100";
-
-    const valore = document.getElementById("valore");
-    const slider = document.getElementById("servoRange");
-    slider.addEventListener("input", () => {
-      valore.textContent = slider.value;
-      fetch(`${ip}/set-servo?angle=${slider.value}`);
-    });
-
-    function salvaEEPROM() {
-      fetch(`${ip}/salva`);
+    function muoviServo(valore) {
+      document.getElementById("servoVal").innerText = valore;
+      fetch(`/set-servo?angle=${valore}`);
     }
 
-    function aggiornaEventi() {
-      const righe = document.querySelectorAll("#tabella tr");
+    function aggiungiEvento() {
+      const tbody = document.getElementById("tabellaEventi");
+      const r = tbody.rows.length;
+      const row = tbody.insertRow();
+
+      row.innerHTML = `
+        <td>${r}</td>
+        <td><input type="number" min="0" max="23" value="0"></td>
+        <td><input type="number" min="0" max="59" value="0"></td>
+        <td><input type="number" min="0" max="180" value="90"></td>
+        <td class="giorni">
+          ${[...Array(7)].map((_, i) => `<input type="checkbox" value="${i}">`).join(" ")}
+        </td>
+        <td><input type="checkbox" checked></td>
+      `;
+    }
+
+    function applicaModifiche() {
+      const righe = document.querySelectorAll("#tabellaEventi tr");
       const eventi = [];
 
-      righe.forEach((tr) => {
-        const celle = tr.querySelectorAll("td");
-        const evento = {
-          ora: parseInt(celle[1].querySelector("input").value),
-          minuto: parseInt(celle[2].querySelector("input").value),
-          angolo: parseInt(celle[3].querySelector("input").value),
-          giorni: 0,
-          attivo: celle[5].querySelector("input").checked
-        };
+      righe.forEach((riga, i) => {
+        const celle = riga.querySelectorAll("td");
+        const ora = celle[1].querySelector("input").value;
+        const minuto = celle[2].querySelector("input").value;
+        const angolo = celle[3].querySelector("input").value;
+        const giorni = celle[4].querySelectorAll("input[type=checkbox]");
+        const attivo = celle[5].querySelector("input[type=checkbox]").checked ? 1 : 0;
 
-        celle[4].querySelectorAll("input").forEach((cb, i) => {
-          if (cb.checked) evento.giorni |= (1 << i);
+        let bitmask = 0;
+        giorni.forEach(g => {
+          if (g.checked) bitmask |= (1 << parseInt(g.value));
         });
 
-        eventi.push(evento);
+        eventi.push(`e${i}=${ora},${minuto},${angolo},${bitmask},${attivo}`);
       });
 
-      fetch(`${ip}/update-events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(eventi)
-      });
+      const url = `/update-events?${eventi.join("&")}`;
+      fetch(url);
     }
 
-    function caricaEventi() {
-      fetch(`${ip}/get-events`)
-        .then(res => res.json())
-        .then(eventi => {
-          const tabella = document.getElementById("tabella");
-          tabella.innerHTML = "";
-          eventi.forEach((e, i) => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `
-              <td>${i}</td>
-              <td><input type="number" min="0" max="23" value="${e.ora}" /></td>
-              <td><input type="number" min="0" max="59" value="${e.minuto}" /></td>
-              <td><input type="number" min="0" max="180" value="${e.angolo}" /></td>
-              <td>
-                ${[...Array(7)].map((_, b) => `
-                  <input type="checkbox" ${e.giorni & (1 << b) ? "checked" : ""} />
-                `).join(" ")}
-              </td>
-              <td><input type="checkbox" ${e.attivo ? "checked" : ""} /></td>
-            `;
-            tabella.appendChild(tr);
+    function salvaEEPROM() {
+      fetch("/salva");
+    }
+
+    window.onload = function () {
+      fetch("/get-events")
+        .then(r => r.json())
+        .then(dati => {
+          dati.forEach(ev => {
+            aggiungiEvento();
+            const r = document.querySelectorAll("#tabellaEventi tr").length - 1;
+            const riga = document.querySelector(`#tabellaEventi tr:nth-child(${r + 1})`).children;
+
+            riga[1].querySelector("input").value = ev.ora;
+            riga[2].querySelector("input").value = ev.minuto;
+            riga[3].querySelector("input").value = ev.angolo;
+
+            const chk = riga[4].querySelectorAll("input");
+            for (let i = 0; i < 7; i++) {
+              if ((ev.giorni >> i) & 1) chk[i].checked = true;
+            }
+
+            riga[5].querySelector("input").checked = ev.attivo;
           });
         });
-    }
-
-    caricaEventi();
+    };
   </script>
 </body>
 </html>
