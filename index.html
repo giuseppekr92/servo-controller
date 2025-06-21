@@ -1,84 +1,134 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Controllo Servo Remoto</title>
   <style>
-    body { font-family: sans-serif; background: #f4f4f4; padding: 1rem; }
-    h1 { color: #007bff; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: center; }
-    th { background-color: #eee; }
-    input[type=range] { width: 100%; }
-    .center { text-align: center; }
-    button { padding: 0.5rem 1rem; font-size: 1rem; }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f7f7f7;
+    }
+    h1 {
+      color: #007bff;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #eee;
+    }
+    button {
+      padding: 8px 12px;
+      margin-top: 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    input[type="number"] {
+      width: 60px;
+    }
   </style>
 </head>
 <body>
   <h1>Controllo Servo</h1>
-  <div class="center">
-    <label for="servoRange">Angolo: <span id="servoVal">90</span>°</label><br>
-    <input type="range" id="servoRange" min="0" max="180" value="90">
-  </div>
-  <div class="center" style="margin-top:1rem;">
-    <button onclick="salvaEventi()">💾 Salva eventi su EEPROM</button>
-  </div>
-  <table id="eventsTable">
+  <p>Angolo: <span id="valore">90</span>°</p>
+  <input type="range" id="servoRange" min="0" max="180" value="90" />
+
+  <button onclick="salvaEEPROM()">💾 Salva eventi su EEPROM</button>
+  <button onclick="aggiornaEventi()">📤 Applica modifiche</button>
+
+  <table>
     <thead>
       <tr>
         <th>#</th><th>Ora</th><th>Minuto</th><th>Angolo</th><th>Giorni (D-L-M-M-G-V-S)</th><th>Attivo</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="tabella"></tbody>
   </table>
+
   <script>
     const ip = "http://192.168.43.100";
-    const servoRange = document.getElementById("servoRange");
-    const servoVal = document.getElementById("servoVal");
 
-    servoRange.addEventListener("input", e => {
-      servoVal.textContent = e.target.value;
-      fetch(`${ip}/set-servo?angle=${e.target.value}`);
+    const valore = document.getElementById("valore");
+    const slider = document.getElementById("servoRange");
+    slider.addEventListener("input", () => {
+      valore.textContent = slider.value;
+      fetch(`${ip}/set-servo?angle=${slider.value}`);
     });
 
-    function caricaEventi() {
-      fetch(`${ip}/get-events`).then(r => r.json()).then(data => {
-        const tbody = document.querySelector("#eventsTable tbody");
-        tbody.innerHTML = "";
-        data.forEach((ev, i) => {
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${i+1}</td>
-            <td><input type="number" min="0" max="23" id="ora-${i}" value="${ev.ora}"></td>
-            <td><input type="number" min="0" max="59" id="min-${i}" value="${ev.minuto}"></td>
-            <td><input type="number" min="0" max="180" id="angolo-${i}" value="${ev.angolo}"></td>
-            <td>` + [...Array(7).keys()].map(d => ` <input type="checkbox" id="g-${i}-${d}" ${(ev.giorni >> d) & 1 ? 'checked' : ''}>`).join('') + `</td>
-            <td><input type="checkbox" id="attivo-${i}" ${ev.attivo ? 'checked' : ''}></td>
-          `;
-          tbody.appendChild(row);
+    function salvaEEPROM() {
+      fetch(`${ip}/salva`);
+    }
+
+    function aggiornaEventi() {
+      const righe = document.querySelectorAll("#tabella tr");
+      const eventi = [];
+
+      righe.forEach((tr) => {
+        const celle = tr.querySelectorAll("td");
+        const evento = {
+          ora: parseInt(celle[1].querySelector("input").value),
+          minuto: parseInt(celle[2].querySelector("input").value),
+          angolo: parseInt(celle[3].querySelector("input").value),
+          giorni: 0,
+          attivo: celle[5].querySelector("input").checked
+        };
+
+        celle[4].querySelectorAll("input").forEach((cb, i) => {
+          if (cb.checked) evento.giorni |= (1 << i);
         });
+
+        eventi.push(evento);
+      });
+
+      fetch(`${ip}/update-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eventi)
       });
     }
 
-    function salvaEventi() {
-      const eventi = [];
-      for (let i = 0; i < 50; i++) {
-        const ora = +document.getElementById(`ora-${i}`)?.value || 0;
-        const minuto = +document.getElementById(`min-${i}`)?.value || 0;
-        const angolo = +document.getElementById(`angolo-${i}`)?.value || 0;
-        let giorni = 0;
-        for (let d = 0; d < 7; d++) {
-          if (document.getElementById(`g-${i}-${d}`)?.checked) giorni |= (1 << d);
-        }
-        const attivo = document.getElementById(`attivo-${i}`)?.checked || false;
-        eventi.push({ ora, minuto, giorni, angolo, attivo });
-      }
-      fetch(`${ip}/set-events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventi)
-      }).then(() => alert("Eventi inviati!"));
+    function caricaEventi() {
+      fetch(`${ip}/get-events`)
+        .then(res => res.json())
+        .then(eventi => {
+          const tabella = document.getElementById("tabella");
+          tabella.innerHTML = "";
+          eventi.forEach((e, i) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td>${i}</td>
+              <td><input type="number" min="0" max="23" value="${e.ora}" /></td>
+              <td><input type="number" min="0" max="59" value="${e.minuto}" /></td>
+              <td><input type="number" min="0" max="180" value="${e.angolo}" /></td>
+              <td>
+                ${[...Array(7)].map((_, b) => `
+                  <input type="checkbox" ${e.giorni & (1 << b) ? "checked" : ""} />
+                `).join(" ")}
+              </td>
+              <td><input type="checkbox" ${e.attivo ? "checked" : ""} /></td>
+            `;
+            tabella.appendChild(tr);
+          });
+        });
     }
 
     caricaEventi();
